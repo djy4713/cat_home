@@ -1,0 +1,12 @@
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "cat_home.settings")
+django.setup()
+python manage.py makemigrations app 
+python manage.py migrate app --database db_name 
+python manage.py migrate --run-syncdb
+
+
+mysql-python:
+g++ -pthread -shared ./temp.linux-x86_64-2.7/_mysql.o -L/usr/lib64 -l mysqlclient_r -lpthread -lm -lrt -ldl -o ./lib.linux-x86_64-2.7/_mysql.so
+
+
+http://python.usyiyi.cn/translate/django_182/ref/csrf.html
