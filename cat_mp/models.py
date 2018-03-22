@@ -16,7 +16,7 @@ class Image(models.Model):
     openid = models.CharField(max_length=128, db_index=True, default='')
     title = models.CharField(max_length=200)
     fpath =  models.FileField(upload_to=upload_to)
-    ftime = models.CharField(max_length=30)
+    ftime = models.CharField(max_length=30, db_index=True)
 
     def todict(self):
         return {'title':self.title, 'fpath':config.ROOT_URL + self.fpath.url, 'ftime':self.ftime}

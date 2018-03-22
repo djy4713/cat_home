@@ -64,7 +64,8 @@ def upload(request):
                 image = Image()
                 image.title = form.cleaned_data['title']
                 image.fpath = form.cleaned_data['fpath']
-                image.ftime = time.strftime('%Y-%m-%d %H:%M:%S')
+                image.ftime = form.cleaned_data['ftime']
+                #image.ftime = time.strftime('%Y-%m-%d %H:%M:%S')
                 image.openid = sess['openid']
                 image.save()
 
