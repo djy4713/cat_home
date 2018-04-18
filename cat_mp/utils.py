@@ -14,7 +14,7 @@ rc = StrictRedisCluster(startup_nodes=config.startup_nodes, decode_responses=Tru
 def save_session(sess):
     key = str(uuid.uuid1())
     value = json.dumps(sess)
-    ret = rc.setex(key, config.EX_TIME, value)
+    ret = rc.setex(key, config.EX_SESSION_TIME, value)
     if ret:
         return key
     else:
@@ -24,6 +24,18 @@ def get_session(key):
     value = rc.get(key)
     sess = json.loads(value)
     return sess
+
+def get_and_update_access_token():
+    access_token = None
+    if rc.exists(config.ACCESS_TOKEN):
+        access_token = rc.get(config.ACCESS_TOKEN) 
+    else:
+        _data = http_get(config.ACCESS_TOKEN_URL)
+        if config.ACCESS_TOKEN in _data:
+            access_token = _data[config.ACCESS_TOKEN]
+            expires_in = _data['expires_in']
+            rc.setex(config.ACCESS_TOKEN, expires_in - 300, access_token)
+    return access_token
 
 def exists_key(key):
     return rc.exists(key)
@@ -110,28 +122,37 @@ def get_prepay_params(request):
     data['sign'] = GetPaySign(data)
     return data
 
-def http_post(url, data):
-    data_encode = dict_to_xml(data)
-
-    req = urllib2.Request(url=url, data=data_encode)
+def http_post(url, data, trans2xml=False, decode_data=True):
+    if trans2xml:
+        data_encode = dict_to_xml(data)
+        req = urllib2.Request(url=url, data=data_encode)
+    else:
+        data_encode = json.dumps(data)
+        header_dict = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko',"Content-Type": "application/json"}
+        req = urllib2.Request(url=url, data=data_encode, headers=header_dict)
     response = urllib2.urlopen(req)
     data = response.read()
-    try:
-        res_data = json.loads(data)
-    except:
-        res_data = xml_to_dict(data)
+    if decode_data:
+        try:
+            res_data = json.loads(data)
+        except:
+            res_data = xml_to_dict(data)
+        return res_data
+    else:
+        return data
 
-    return res_data
-
-def http_get(url):
+def http_get(url, decode_data=True):
     request = urllib2.Request(url)
     response = urllib2.urlopen(request)
     data = response.read()
-    try:
-        res_data = json.loads(data)
-    except:
-        res_data = xml_to_dict(data)
-    return res_data
+    if decode_data:
+        try:
+            res_data = json.loads(data)
+        except:
+            res_data = xml_to_dict(data)
+        return res_data
+    else:
+        return data
 
 
 
@@ -140,7 +161,14 @@ if __name__ == '__main__':
     while True:
         jscode = raw_input("jscode:").strip()
         print http_get(config.JSCODE_SESSION_URL + jscode)
-    '''
     sess = {"openid":"123", "random":"456"}
     key = save_session(sess)
     print get_session(key)
+    '''
+    access_token = get_and_update_access_token()
+    print access_token
+    #req_data = {"scene":"1", "page":"pages/index/index"}
+    req_data = {"scene":"1"}
+    ret_data = http_post(config.WXACODE_URL + access_token, req_data, decode_data=False)
+    with open('1.jpeg', 'wb') as f_wxcode:
+        f_wxcode.write(ret_data)
