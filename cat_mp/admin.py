@@ -9,3 +9,4 @@ from .models import *
 admin.site.register(User)
 admin.site.register(Image)
 admin.site.register(Reward)
+admin.site.register(Album)

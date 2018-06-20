@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-
+import datetime
 from django.shortcuts import render
 from django.shortcuts import render_to_response
 from django.template import RequestContext
@@ -111,6 +111,14 @@ def upload(request):
                 image.openid = sess['openid']
                 image.save()
 
+                if image.index == 0:
+                    album = Album()
+                    album.openid = image.openid
+                    album.album_id = image.album_id
+                    create_time = datetime.datetime.now()
+                    album.create_time = create_time.strftime('%Y-%m-%d')
+                    album.save()
+
                 data['ret_code'] = 1
             else:
                 data['msg'] = str(form.errors)
@@ -124,7 +132,7 @@ def upload(request):
 
 @csrf_exempt
 def get_album_list(request):
-    data = {'ret_code':0, 'ret_data':{'image_list':[]}}
+    data = {'ret_code':0, 'ret_data':{'image_list':[], 'album_infos':[]}}
     try:
         if request.method == 'POST':
             req_data = json.loads(request.body)
@@ -140,6 +148,36 @@ def get_album_list(request):
             m_images = Image.objects.filter(openid=sess['openid'], album_id=obj['album_id'], index=0)
             if m_images.count() > 0:
                 data['ret_data']['image_list'].append(m_images[0].todict())
+            albums = Album.objects.filter(openid=sess['openid'], album_id=obj['album_id'])
+            if albums.count() > 0:
+                data['ret_data']['album_infos'].append(albums[0].todict())
+            else:
+                album = Album()
+                album.openid = sess['openid'] 
+                album.album_id = obj['album_id'] 
+                album.save()
+                data['ret_data']['album_infos'].append(album.todict())
+        data['ret_code'] = 1
+
+    except Exception as err:
+        data['msg'] = 'program or internet error.'
+        logger.error(str(err))
+    res = json.dumps(data, ensure_ascii=False)
+    return HttpResponse(res, content_type="application/json")
+
+@csrf_exempt
+def like_album(request):
+    data = {'ret_code':0, 'ret_data':{}}
+    try:
+        if request.method == 'POST':
+            req_data = json.loads(request.body)
+        else:
+            req_data = request.GET
+
+        sess = utils.get_session(req_data['sess_key'])
+        album = Album.objects.get(openid=sess['openid'], album_id=req_data['album_id'])
+        album.like_cnt += 1
+        album.save()
         data['ret_code'] = 1
 
     except Exception as err:
@@ -150,7 +188,7 @@ def get_album_list(request):
 
 @csrf_exempt
 def get_album_info(request):
-    data = {'ret_code':0, 'ret_data':{'image_list':[]}}
+    data = {'ret_code':0, 'ret_data':{'image_list':[], 'album_info':{}}}
     try:
         if request.method == 'POST':
             req_data = json.loads(request.body)
@@ -161,6 +199,11 @@ def get_album_info(request):
         m_images = Image.objects.filter(openid=sess['openid'], album_id=req_data['album_id'])
         for m_image in m_images:
             data['ret_data']['image_list'].append(m_image.todict())
+
+        album = Album.objects.get(openid=sess['openid'], album_id=req_data['album_id'])
+        album.visit_cnt += 1
+        album.save()
+        data['ret_data']['album_info'] = album.todict()
         data['ret_code'] = 1
 
     except Exception as err:
@@ -177,8 +220,13 @@ def prepay(request):
             params = utils.get_prepay_params(request)
             ret = utils.http_post(config.UnifiedOrder_URL, params, trans2xml=True)
             if 'return_code' in ret and ret['return_code'] == 'SUCCESS' and 'result_code' in ret and ret['result_code'] == 'SUCCESS':
-                data['ret_code'] = 1
-                data['ret_data']['prepay_id'] = ret['prepay_id']
+                if reward(params):
+                    data['ret_data']['prepay_info'] = utils.get_pay_params(ret['prepay_id'])
+                    data['ret_code'] = 1
+                else:
+                    data['msg'] = 'reward save failed'
+            else:
+                data['msg'] = 'prepay failed'
 
     except Exception as err:
         logger.error(str(err))
@@ -187,46 +235,72 @@ def prepay(request):
     return HttpResponse(res, content_type="application/json")
 
 @csrf_exempt
-def pay_notify(request):
+def pay(request):
     data = {'ret_code':0, 'ret_data':{}}
-    print 'pay_notify.'
+    try:
+        if request.method == 'POST':
+            params = utils.get_pay_params(request)
+            data['ret_data'] = params
+            data['ret_code'] = 1
+    except Exception as err:
+        logger.error(str(err))
+
     res = json.dumps(data, ensure_ascii=False)
     return HttpResponse(res, content_type="application/json")
+    
+
+@csrf_exempt
+def pay_notify(request):
+    result = '<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[签名失败]]></return_msg></xml>' 
+    try:
+        if request.method == 'POST':
+            print 'pay notify post'
+            try:
+                req_data = json.loads(request.body)
+            except:
+                req_data = utils.xml_to_dict(request.body)
+            req_sign = req_data['sign']
+            _req_data = req_data.copy()
+            _req_data.pop('sign')
+            sign = utils.GetPaySign(_req_data)
+            print req_data
+            print req_sign, sign
+            if req_sign == sign and req_data['return_code'] == 'SUCCESS' and req_data['result_code'] == 'SUCCESS':
+                reward = Reward.objects.get(trade_no=req_data['out_trade_no'])
+                reward.transaction_id = req_data['transaction_id']
+                reward.state = 1
+                reward.save()
+                result = '<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>' 
+        else:
+            print 'pay notify get'
+    except Exception as err:
+        logger.error(str(err))
+    return HttpResponse(result)
 
 @csrf_exempt
 def reward_test(request):
     return render_to_response('reward.html')
 
-@csrf_exempt
-def reward(request):
-    data = {'ret_code':0, 'ret_data':{}}
+def reward(req_data):
     try:
-        if request.method == 'POST':
-            req_data = json.loads(request.body)
-        else:
-            req_data = request.GET
-
         reward = Reward()
-        sess = utils.get_session(req_data['sess_key'])
-        reward.ropenid = sess['openid']
-        reward.amount = float(req_data['amount'])
-        reward.album_id = req_data['album_id'] 
+        reward.ropenid = req_data['openid']
+        reward.amount = float(req_data['total_fee'])
+        reward.album_id = req_data['product_id'] 
+        reward.trade_no = req_data['out_trade_no']
         reward.rtime = time.strftime('%Y-%m-%d %H:%M:%S')
-        #reward.openid = encrypt(req_data['rid']) 
         sc = Image.objects.filter(album_id=reward.album_id)
         if sc.count() <= 0:
-            data['msg'] = 'album not exist!'
+            return False
         else:
             reward.openid = sc[0].openid
             reward.save()
-            data['ret_code'] = 1
-
     except Exception as err:
-        data['msg'] = 'program or internet error.'
         logger.error(str(err))
+        return False
 
-    res = json.dumps(data, ensure_ascii=False)
-    return HttpResponse(res, content_type="application/json")
+    return True
+
 
 def get_rewards(request):
     data = {'ret_code':0, 'ret_data':{'rewards':[]}}

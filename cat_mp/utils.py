@@ -8,6 +8,7 @@ import hashlib
 import datetime
 import xml.etree.ElementTree as ET
 from rediscluster import StrictRedisCluster
+import time
 
 rc = StrictRedisCluster(startup_nodes=config.startup_nodes, decode_responses=True)
 
@@ -88,8 +89,20 @@ def md5(string):
 def GetPaySign(data):
     stringA = dict_to_param(data)
     stringSignTemp = stringA + '&key=' + config.mch_secret
+    print stringSignTemp
     sign = md5(stringSignTemp).upper()
     return sign
+
+def get_pay_params(prepay_id):
+    data = {}
+    data['nonceStr'] = uuid.uuid1().hex 
+    data['appId'] = config.app_id
+    data['timeStamp'] = int(time.time())
+    data['package'] = 'prepay_id=' + prepay_id
+    data['signType'] = 'MD5'
+    data['paySign'] = GetPaySign(data)
+    data['prepay_id'] = prepay_id
+    return data
 
 def get_prepay_params(request):
     POST = json.loads(request.body)
